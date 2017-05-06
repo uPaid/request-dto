@@ -159,7 +159,7 @@ public class RequestDTOArgumentResolver implements HandlerMethodArgumentResolver
         if (nonNull(jsonBody)) {
             return jsonBody;
         }
-        String body = IOUtils.toString(servletRequest.getInputStream(), defaultCharset());
+        String body = IOUtils.toString(servletRequest.getInputStream());
         servletRequest.setAttribute(JSON_BODY_ATTRIBUTE, body);
         return body;
     }
