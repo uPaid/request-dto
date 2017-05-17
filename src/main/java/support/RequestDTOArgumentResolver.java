@@ -1,19 +1,16 @@
 package support;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.gson.Gson;
-import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.extern.java.Log;
-import org.apache.commons.io.IOUtils;
 import org.apache.http.NameValuePair;
 import org.apache.http.client.utils.URLEncodedUtils;
 import org.springframework.context.ApplicationContext;
 import org.springframework.core.MethodParameter;
+import org.springframework.http.converter.HttpMessageConverter;
 import org.springframework.web.bind.support.WebDataBinderFactory;
 import org.springframework.web.context.request.NativeWebRequest;
-import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.method.support.ModelAndViewContainer;
+import org.springframework.web.servlet.mvc.method.annotation.AbstractMessageConverterMethodArgumentResolver;
 import support.annotations.RequestDTO;
 import support.dto.DTO;
 import support.dto.DTOBuilder;
@@ -24,7 +21,6 @@ import javax.servlet.http.HttpServletRequest;
 import javax.validation.ConstraintViolation;
 import javax.validation.ConstraintViolationException;
 import javax.validation.Validator;
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,23 +28,16 @@ import java.util.Set;
 
 import static java.nio.charset.Charset.defaultCharset;
 import static java.util.Arrays.asList;
-import static java.util.Objects.*;
 import static java.util.Optional.ofNullable;
 import static java.util.stream.Collectors.toMap;
-import static org.apache.commons.lang3.StringUtils.isEmpty;
 import static org.springframework.web.servlet.HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE;
 
 @Log
-@RequiredArgsConstructor
-public class RequestDTOArgumentResolver implements HandlerMethodArgumentResolver {
-
-    private static final String JSON_BODY_ATTRIBUTE = "JSON_REQUEST_BODY";
+public class RequestDTOArgumentResolver extends AbstractMessageConverterMethodArgumentResolver {
 
     private final ApplicationContext applicationContext;
 
     private final Validator validator;
-
-    private final SerializationFunction serializationFunction;
 
     private final HeadersBuilder headersBuilder = new HeadersBuilder();
 
@@ -56,34 +45,10 @@ public class RequestDTOArgumentResolver implements HandlerMethodArgumentResolver
 
     private final RequestParamBuilder requestParamBuilder = new RequestParamBuilder();
 
-    public RequestDTOArgumentResolver(ApplicationContext applicationContext, Validator validator, ObjectMapper objectMapper) {
+    public RequestDTOArgumentResolver(ApplicationContext applicationContext, Validator validator, List<HttpMessageConverter<?>> converters) {
+        super(converters);
         this.applicationContext = applicationContext;
         this.validator = validator;
-        this.serializationFunction = new SerializationFunction() {
-            @Override
-            @SneakyThrows
-            public <T> T serialize(String input, Class<T> outputClass) {
-                if (isEmpty(input)) {
-                    return null;
-                }
-                else {
-                    return objectMapper.readValue(input, outputClass);
-                }
-            }
-        };
-    }
-
-    public RequestDTOArgumentResolver(ApplicationContext applicationContext, Validator validator) {
-        this.applicationContext = applicationContext;
-        this.validator = validator;
-        this.serializationFunction = new SerializationFunction() {
-            Gson gson = new Gson();
-
-            @Override
-            public <T> T serialize(String input, Class<T> outputClass) {
-                return gson.fromJson(input, outputClass);
-            }
-        };
     }
 
     @Override
@@ -92,6 +57,7 @@ public class RequestDTOArgumentResolver implements HandlerMethodArgumentResolver
     }
 
     @Override
+    @SneakyThrows
     public Object resolveArgument(MethodParameter parameter, ModelAndViewContainer mavContainer, NativeWebRequest webRequest, WebDataBinderFactory binderFactory)
     throws IllegalAccessException, InstantiationException {
         RequestDTO annotation = parameter.getParameterAnnotation(RequestDTO.class);
@@ -105,12 +71,11 @@ public class RequestDTOArgumentResolver implements HandlerMethodArgumentResolver
             throw new RuntimeException();
         }
 
-        String requestBody = getRequestBody(webRequest);
         Map<String, String> pathVariables = getPathVariables(webRequest);
         Map<String, List<String>> headers = getHeaders(webRequest);
         Map<String, String> queryParams = getQueryParams(webRequest);
 
-        Object input = serializationFunction.serialize(requestBody, inputClass);
+        Object input = readWithMessageConverters(webRequest, parameter, inputClass);
         if (input == null) {
             input = inputClass.newInstance();
         }
@@ -152,18 +117,6 @@ public class RequestDTOArgumentResolver implements HandlerMethodArgumentResolver
         return builder.build((I) input);
     }
 
-    @SneakyThrows(IOException.class)
-    private String getRequestBody(NativeWebRequest webRequest) {
-        HttpServletRequest servletRequest = webRequest.getNativeRequest(HttpServletRequest.class);
-        String jsonBody = (String) servletRequest.getAttribute(JSON_BODY_ATTRIBUTE);
-        if (nonNull(jsonBody)) {
-            return jsonBody;
-        }
-        String body = IOUtils.toString(servletRequest.getInputStream());
-        servletRequest.setAttribute(JSON_BODY_ATTRIBUTE, body);
-        return body;
-    }
-
     @SuppressWarnings("unchecked")
     private Map<String, String> getPathVariables(NativeWebRequest webRequest) {
         HttpServletRequest httpServletRequest = webRequest.getNativeRequest(HttpServletRequest.class);
@@ -189,10 +142,6 @@ public class RequestDTOArgumentResolver implements HandlerMethodArgumentResolver
         if (!constraintViolations.isEmpty()) {
             throw new ConstraintViolationException(constraintViolations);
         }
-    }
-
-    public interface SerializationFunction {
-        <T> T serialize(String input, Class<T> outputClass);
     }
 
 }
