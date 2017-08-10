@@ -1,9 +1,9 @@
 package support;
 
-import support.annotations.PathVariable;
 import lombok.extern.java.Log;
 import org.springframework.core.convert.ConversionService;
 import org.springframework.core.convert.support.DefaultConversionService;
+import support.annotations.PathVariable;
 
 import java.lang.reflect.Field;
 import java.util.Map;
@@ -34,7 +34,10 @@ public class PathVariablesBuilder {
                         Object value = conversionService.convert(pathVariable, field.getType());
                         field.set(t, value);
                     } catch (IllegalAccessException e) {
-                        log.warning("Path variable setting failed. " + e);
+                        log.warning("Path variable " + pathVariableName + " setting failed. " + e);
+                    } catch (Exception e) {
+                        log.warning("Path variable " + pathVariableName + " setting failed.");
+                        throw e;
                     }
                 }
             }

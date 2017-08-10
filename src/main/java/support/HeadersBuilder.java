@@ -1,7 +1,7 @@
 package support;
 
-import support.annotations.Header;
 import lombok.extern.java.Log;
+import support.annotations.Header;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -40,7 +40,10 @@ public class HeadersBuilder {
                             field.set(t, headerValues.get(0));
                         }
                     } catch (IllegalAccessException e) {
-                        log.warning("Header setting failed. " + e);
+                        log.warning("Header" + headerName + "setting failed. " + e);
+                    } catch (Exception e) {
+                        log.warning("Header " + headerName + " setting failed.");
+                        throw e;
                     }
                 }
             }
