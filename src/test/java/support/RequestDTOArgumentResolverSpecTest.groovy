@@ -2,7 +2,11 @@ package support
 
 import org.springframework.context.ApplicationContext
 import org.springframework.core.MethodParameter
+import org.springframework.http.converter.StringHttpMessageConverter
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter
+import org.springframework.web.bind.support.WebDataBinderFactory
 import org.springframework.web.context.request.NativeWebRequest
+import org.springframework.web.method.support.ModelAndViewContainer
 import spock.lang.Ignore
 import spock.lang.Specification
 import support.annotations.Header
@@ -21,13 +25,17 @@ import static java.lang.Boolean.TRUE
 import static java.util.Collections.*
 import static javax.validation.Validation.byDefaultProvider
 import static org.springframework.web.servlet.HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE
+import static support.RequestDTOArgumentResolverSpecTest.TestIn.TEST_HEADER_NAME
+import static support.RequestDTOArgumentResolverSpecTest.TestIn.TEST_HEADER_NAME
+import static support.RequestDTOArgumentResolverSpecTest.TestIn.TEST_HEADER_NAME
 
-@Ignore("TODO: fix tests for new implementation")
+@Ignore
 class RequestDTOArgumentResolverSpecTest extends Specification {
+
     def "should support RequestDTO parameter"() {
         given:
         def parameter = Mock MethodParameter
-        def argumentResolver = new RequestDTOArgumentResolver(null, null)
+        def argumentResolver = new RequestDTOArgumentResolver(null, null, singletonList(new StringHttpMessageConverter()))
 
         when:
         parameter.hasParameterAnnotation(RequestDTO.class) >> true
@@ -45,7 +53,7 @@ class RequestDTOArgumentResolverSpecTest extends Specification {
         def annotation = Mock RequestDTO
         def request = Mock HttpServletRequest
         def validator = Mock Validator
-        def argumentResolver = new RequestDTOArgumentResolver(context, validator)
+        def argumentResolver = new RequestDTOArgumentResolver(context, validator, singletonList(new MappingJackson2HttpMessageConverter()))
 
         when:
         context.getBean(TestDTOBuilder.class) >> new TestDTOBuilder()
@@ -56,8 +64,10 @@ class RequestDTOArgumentResolverSpecTest extends Specification {
         validator.validate(_ as Object) >> emptySet()
         parameter.getParameterAnnotation(RequestDTO.class) >> annotation
         nativeRequest.getNativeRequest(HttpServletRequest.class) >> request
-        nativeRequest.getHeaderNames() >> new TestArrayEnumeration(Arrays.asList("testHeaderName"))
-        nativeRequest.getHeaderValues("test-header") >> ["test"]
+        nativeRequest.getHeaderNames() >> new TestArrayEnumeration([TEST_HEADER_NAME])
+        nativeRequest.getHeaderValues(TEST_HEADER_NAME) >> ["test"]
+        request.getHeaderNames() >> new TestArrayEnumeration([TEST_HEADER_NAME])
+        request.getHeaders(_ as String) >> new TestArrayEnumeration(["test"])
         request.getAttribute(_ as String) >> { String attribute ->
             if (attribute == "JSON_REQUEST_BODY") {
                 return '''
@@ -69,7 +79,7 @@ class RequestDTOArgumentResolverSpecTest extends Specification {
                 return [testPathVariable: "test"]
             }
         }
-        TestDTO dto = argumentResolver.resolveArgument(parameter, null, nativeRequest, null) as TestDTO
+        TestDTO dto = argumentResolver.resolveArgument(parameter, null as ModelAndViewContainer, nativeRequest, null as WebDataBinderFactory) as TestDTO
 
         then:
         noExceptionThrown()
@@ -87,7 +97,7 @@ class RequestDTOArgumentResolverSpecTest extends Specification {
         def nativeRequest = Mock NativeWebRequest
         def annotation = Mock RequestDTO
         def request = Mock HttpServletRequest
-        def argumentResolver = new RequestDTOArgumentResolver(context, validator)
+        def argumentResolver = new RequestDTOArgumentResolver(context, validator, singletonList(new StringHttpMessageConverter()))
 
         when:
         context.getBean(TestDTOBuilder.class) >> new TestDTOBuilder()
@@ -99,6 +109,8 @@ class RequestDTOArgumentResolverSpecTest extends Specification {
         nativeRequest.getNativeRequest(HttpServletRequest.class) >> request
         nativeRequest.getHeaderNames() >> headerNames.iterator()
         nativeRequest.getHeaderValues(_ as String) >> [headerValue]
+        request.getHeaderNames() >> new TestArrayEnumeration(headerNames)
+        request.getHeaders(_ as String) >> new TestArrayEnumeration([headerValue])
         request.getAttribute(_ as String) >> { String attribute ->
             if (attribute == "JSON_REQUEST_BODY") {
                 return jsonRequest
@@ -106,29 +118,31 @@ class RequestDTOArgumentResolverSpecTest extends Specification {
                 return pathVariablesMap
             }
         }
-        argumentResolver.resolveArgument(parameter, null, nativeRequest, null) as TestDTO
+        argumentResolver.resolveArgument(parameter, null as ModelAndViewContainer, nativeRequest, null) as TestDTO
 
         then:
         ConstraintViolationException exception = thrown()
         exception.constraintViolations.size() == expectedViolationsAmount
 
         where:
-        headerNames     | headerValue | pathVariablesMap           | jsonRequest              | expectedViolationsAmount
-        emptyList()     | "test"      | [testPathVariable: "test"] | '{"inputValue": "test"}' | 1
-        ["test-header"] | null        | [testPathVariable: "test"] | '{"inputValue": "test"}' | 1
-        ["test-header"] | "test"      | emptyMap()                 | '{"inputValue": "test"}' | 1
-        ["test-header"] | "test"      | [testPathVariable: null]   | '{"inputValue": "test"}' | 1
-        ["test-header"] | "test"      | [testPathVariable: "test"] | '{}'                     | 1
-        emptyList()     | null        | [testPathVariable: "test"] | '{"inputValue": "test"}' | 1
-        emptyList()     | null        | emptyMap()                 | '{}'                     | 3
+        headerNames        | headerValue | pathVariablesMap           | jsonRequest              | expectedViolationsAmount
+        emptyList()        | "test"      | [testPathVariable: "test"] | '{"inputValue": "test"}' | 1
+        [TEST_HEADER_NAME] | null        | [testPathVariable: "test"] | '{"inputValue": "test"}' | 1
+        [TEST_HEADER_NAME] | "test"      | emptyMap()                 | '{"inputValue": "test"}' | 1
+        [TEST_HEADER_NAME] | "test"      | [testPathVariable: null]   | '{"inputValue": "test"}' | 1
+        [TEST_HEADER_NAME] | "test"      | [testPathVariable: "test"] | '{}'                     | 1
+        emptyList()        | null        | [testPathVariable: "test"] | '{"inputValue": "test"}' | 1
+        emptyList()        | null        | emptyMap()                 | '{}'                     | 3
     }
 
-    class TestIn {
+    static class TestIn {
+        static final String TEST_HEADER_NAME = "test-header"
+
         @NotNull
         private String inputValue
 
         @NotNull
-        @Header("test-header")
+        @Header(TestIn.TEST_HEADER_NAME)
         private String testHeader
 
         @NotNull

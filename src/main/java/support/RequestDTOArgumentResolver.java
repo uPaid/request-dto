@@ -1,7 +1,6 @@
 package support;
 
 import lombok.SneakyThrows;
-import lombok.extern.java.Log;
 import org.apache.http.NameValuePair;
 import org.apache.http.client.utils.URLEncodedUtils;
 import org.springframework.context.ApplicationContext;
@@ -11,6 +10,7 @@ import org.springframework.web.bind.support.WebDataBinderFactory;
 import org.springframework.web.context.request.NativeWebRequest;
 import org.springframework.web.method.support.ModelAndViewContainer;
 import org.springframework.web.servlet.mvc.method.annotation.AbstractMessageConverterMethodArgumentResolver;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter;
 import support.annotations.RequestDTO;
 import support.dto.DTO;
 import support.dto.DTOBuilder;
@@ -32,7 +32,6 @@ import static java.util.Optional.ofNullable;
 import static java.util.stream.Collectors.toMap;
 import static org.springframework.web.servlet.HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE;
 
-@Log
 public class RequestDTOArgumentResolver extends AbstractMessageConverterMethodArgumentResolver {
 
     private final ApplicationContext applicationContext;
@@ -45,8 +44,19 @@ public class RequestDTOArgumentResolver extends AbstractMessageConverterMethodAr
 
     private final RequestParamBuilder requestParamBuilder = new RequestParamBuilder();
 
-    public RequestDTOArgumentResolver(ApplicationContext applicationContext, Validator validator, List<HttpMessageConverter<?>> converters) {
+    public RequestDTOArgumentResolver(ApplicationContext applicationContext,
+                                      Validator validator,
+                                      List<HttpMessageConverter<?>> converters) {
         super(converters);
+        this.applicationContext = applicationContext;
+        this.validator = validator;
+    }
+
+    public RequestDTOArgumentResolver(ApplicationContext applicationContext,
+                                      Validator validator,
+                                      List<HttpMessageConverter<?>> converters,
+                                      List<Object> requestResponseBodyAdvices) {
+        super(converters, requestResponseBodyAdvices);
         this.applicationContext = applicationContext;
         this.validator = validator;
     }
@@ -58,8 +68,7 @@ public class RequestDTOArgumentResolver extends AbstractMessageConverterMethodAr
 
     @Override
     @SneakyThrows
-    public Object resolveArgument(MethodParameter parameter, ModelAndViewContainer mavContainer, NativeWebRequest webRequest, WebDataBinderFactory binderFactory)
-    throws IllegalAccessException, InstantiationException {
+    public Object resolveArgument(MethodParameter parameter, ModelAndViewContainer mavContainer, NativeWebRequest webRequest, WebDataBinderFactory binderFactory) {
         RequestDTO annotation = parameter.getParameterAnnotation(RequestDTO.class);
 
         DTOBuilder<?, ?> dtoBuilder = applicationContext.getBean(annotation.builder());
@@ -67,8 +76,7 @@ public class RequestDTOArgumentResolver extends AbstractMessageConverterMethodAr
         Class<?> inputClass = dtoBuilder.getInputClass();
 
         if (!inputClass.equals(annotation.input())) {
-            log.warning("Builder input type is not compatible with input type declared in annotation.");
-            throw new RuntimeException();
+            throw new RequestDTOException("Builder input type is not compatible with input type declared in annotation.");
         }
 
         Map<String, String> pathVariables = getPathVariables(webRequest);
@@ -89,19 +97,17 @@ public class RequestDTOArgumentResolver extends AbstractMessageConverterMethodAr
         try {
             dto = build(dtoBuilder, input);
         } catch (ClassCastException e) {
-            log.warning("Declared builder output type is not compatible with parameter type. " + e);
-            throw new RuntimeException();
+            throw new RequestDTOException("Declared builder output type is not compatible with parameter type.", e);
         }
 
         Class<? extends DTOValidator<?, ?>> validatorClass = annotation.validator();
         if (validatorClass != NullDTOValidator.class) {
-            DTOValidator<?, ?> validator = applicationContext.getBean(validatorClass);
-            if (!validator.getSupportedDTOClass()
-                          .equals(dto.getClass())) {
-                log.warning("Declared validator input type is not compatible with parameter type.");
-                throw new RuntimeException();
+            DTOValidator<?, ?> dtoValidator = applicationContext.getBean(validatorClass);
+            if (!dtoValidator.getSupportedDTOClass()
+                             .equals(dto.getClass())) {
+                throw new RequestDTOException("Declared validator input type is not compatible with parameter type.");
             }
-            validate(validator, dto);
+            validate(dtoValidator, dto);
         }
 
         return dto;
