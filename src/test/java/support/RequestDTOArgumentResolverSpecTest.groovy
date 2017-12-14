@@ -1,5 +1,6 @@
 package support
 
+import com.google.gson.Gson
 import org.springframework.context.ApplicationContext
 import org.springframework.core.MethodParameter
 import org.springframework.http.converter.StringHttpMessageConverter
@@ -7,8 +8,8 @@ import org.springframework.http.converter.json.MappingJackson2HttpMessageConvert
 import org.springframework.web.bind.support.WebDataBinderFactory
 import org.springframework.web.context.request.NativeWebRequest
 import org.springframework.web.method.support.ModelAndViewContainer
-import spock.lang.Ignore
 import spock.lang.Specification
+import spock.lang.Unroll
 import support.annotations.Header
 import support.annotations.PathVariable
 import support.annotations.RequestDTO
@@ -20,16 +21,14 @@ import javax.servlet.http.HttpServletRequest
 import javax.validation.ConstraintViolationException
 import javax.validation.Validator
 import javax.validation.constraints.NotNull
+import java.lang.reflect.Type
 
 import static java.lang.Boolean.TRUE
 import static java.util.Collections.*
 import static javax.validation.Validation.byDefaultProvider
 import static org.springframework.web.servlet.HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE
 import static support.RequestDTOArgumentResolverSpecTest.TestIn.TEST_HEADER_NAME
-import static support.RequestDTOArgumentResolverSpecTest.TestIn.TEST_HEADER_NAME
-import static support.RequestDTOArgumentResolverSpecTest.TestIn.TEST_HEADER_NAME
 
-@Ignore
 class RequestDTOArgumentResolverSpecTest extends Specification {
 
     def "should support RequestDTO parameter"() {
@@ -50,12 +49,17 @@ class RequestDTOArgumentResolverSpecTest extends Specification {
         def context = Mock ApplicationContext
         def parameter = Mock MethodParameter
         def nativeRequest = Mock NativeWebRequest
-        def annotation = Mock RequestDTO
         def request = Mock HttpServletRequest
+        def annotation = Mock RequestDTO
         def validator = Mock Validator
-        def argumentResolver = new RequestDTOArgumentResolver(context, validator, singletonList(new MappingJackson2HttpMessageConverter()))
+        def argumentResolver = Spy(RequestDTOArgumentResolver, constructorArgs: [context, validator, [new MappingJackson2HttpMessageConverter()]]) {
+            readWithMessageConverters(_ as NativeWebRequest, _ as MethodParameter, _ as Type) >> new TestIn(inputValue: "test")
+        }
 
         when:
+        TestDTO dto = argumentResolver.resolveArgument(parameter, null as ModelAndViewContainer, nativeRequest, null as WebDataBinderFactory) as TestDTO
+
+        then:
         context.getBean(TestDTOBuilder.class) >> new TestDTOBuilder()
         context.getBean(TestDTOValidator.class) >> new TestDTOValidator()
         annotation.builder() >> TestDTOBuilder.class
@@ -64,22 +68,9 @@ class RequestDTOArgumentResolverSpecTest extends Specification {
         validator.validate(_ as Object) >> emptySet()
         parameter.getParameterAnnotation(RequestDTO.class) >> annotation
         nativeRequest.getNativeRequest(HttpServletRequest.class) >> request
-        nativeRequest.getHeaderNames() >> new TestArrayEnumeration([TEST_HEADER_NAME])
+        request.getAttribute(URI_TEMPLATE_VARIABLES_ATTRIBUTE) >> [testPathVariable: "test"]
+        nativeRequest.getHeaderNames() >> [TEST_HEADER_NAME].iterator()
         nativeRequest.getHeaderValues(TEST_HEADER_NAME) >> ["test"]
-        request.getHeaderNames() >> new TestArrayEnumeration([TEST_HEADER_NAME])
-        request.getHeaders(_ as String) >> new TestArrayEnumeration(["test"])
-        request.getAttribute(_ as String) >> { String attribute ->
-            if (attribute == "JSON_REQUEST_BODY") {
-                return '''
-                       {
-                           "inputValue": "test"
-                       }
-                       '''
-            } else if (attribute == URI_TEMPLATE_VARIABLES_ATTRIBUTE) {
-                return [testPathVariable: "test"]
-            }
-        }
-        TestDTO dto = argumentResolver.resolveArgument(parameter, null as ModelAndViewContainer, nativeRequest, null as WebDataBinderFactory) as TestDTO
 
         then:
         noExceptionThrown()
@@ -88,7 +79,8 @@ class RequestDTOArgumentResolverSpecTest extends Specification {
         dto.testPathVariable == "test"
     }
 
-    def "should throw for incorrect data"() {
+    @Unroll
+    "should report #expectedViolationsAmount violations for incorrect data [request: #jsonRequest, path variables: #pathVariablesMap, header names: #headerNames, value: #headerValue]"() {
         given:
         def validator = byDefaultProvider().configure().buildValidatorFactory().getValidator()
 
@@ -97,7 +89,9 @@ class RequestDTOArgumentResolverSpecTest extends Specification {
         def nativeRequest = Mock NativeWebRequest
         def annotation = Mock RequestDTO
         def request = Mock HttpServletRequest
-        def argumentResolver = new RequestDTOArgumentResolver(context, validator, singletonList(new StringHttpMessageConverter()))
+        def argumentResolver = Spy(RequestDTOArgumentResolver, constructorArgs: [context, validator, [new MappingJackson2HttpMessageConverter()]]) {
+            readWithMessageConverters(_ as NativeWebRequest, _ as MethodParameter, _ as Type) >> new Gson().fromJson(jsonRequest, TestIn)
+        }
 
         when:
         context.getBean(TestDTOBuilder.class) >> new TestDTOBuilder()
