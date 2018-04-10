@@ -12,6 +12,9 @@
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <lombok.encoding>UTF-8</lombok.encoding>
+        <distribution.management.release.id>artifactory-local</distribution.management.release.id>
+        <distribution.management.snapshot.url>http://artifactory:8081/artifactory/libs-snapshot-local</distribution.management.snapshot.url>
+        <distribution.management.release.url>http://artifactory:8081/artifactory/libs-release-local</distribution.management.release.url>
     </properties>
 
     <dependencies>
@@ -123,14 +126,14 @@
 
     <distributionManagement>
         <repository>
-            <id>releases</id>
+            <id>artifactory-local</id>
             <name>uPaid Releases</name>
-            <url>http://10.5.10.24:8081/repository/maven-upaid-releases/</url>
+            <url>http://artifactory:8081/artifactory/libs-release-local</url>
         </repository>
         <snapshotRepository>
-            <id>snapshots</id>
+            <id>artifactory-local</id>
             <name>uPaid Snapshots</name>
-            <url>http://10.5.10.24:8081/repository/maven-upaid-snapshots/</url>
+            <url>http://artifactory:8081/artifactory/libs-snapshot-local</url>
         </snapshotRepository>
     </distributionManagement>
 
